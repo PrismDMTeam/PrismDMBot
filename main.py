@@ -1,10 +1,11 @@
 import os
 from dotenv import load_dotenv
-from discord.ext.commands import Bot, Context
+from discord.ext.commands import Bot, Context, CommandError, NoPrivateMessage
 
 from cogs.services.game_service import GameService
 from cogs.controllers.game_controller import GameController
 from models.game import Game
+from util.embed_builder import send_guild_only_error
 
 load_dotenv()
 
@@ -45,18 +46,8 @@ async def showgame(ctx: Context, game_id: str):
         message += '\nchar_ids: ' + ', '.join(str(id) for id in game.char_ids)
     await ctx.channel.send(message)
 
-@bot.command(name='games')
-async def games(ctx: Context):
-    games = Game.find(Game.guild_id==ctx.guild.id).all()
-    if games:
-        game_ids = [str(game.pk) for game in games]
-        await ctx.channel.send('Game IDs for this guild:\n{}'.format("\n".join(game_ids)))
-    else:
-        await ctx.channel.send("Looks like your server hasn't set up any games yet!")
-
 # @bot.command(name='deletegame', aliases=['delgame'])
 # async def delgame(ctx: Context, game_id: str):
-
 
 # FIXME: Delete
 @bot.command(name='purge')
@@ -65,5 +56,10 @@ async def purge(ctx: Context):
     for game in games:
         Game.delete(game.pk)
     await ctx.channel.send("Bye games!")
+
+@bot.event
+async def on_command_error(ctx: Context, error: CommandError):
+    if isinstance(error, NoPrivateMessage):
+        return await send_guild_only_error()
 
 bot.run(DISCORD_TOKEN)

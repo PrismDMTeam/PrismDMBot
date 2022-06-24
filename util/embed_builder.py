@@ -1,5 +1,5 @@
 from discord import Embed
-from discord.ext.commands import Context
+from discord.ext.commands import Context, MissingRequiredArgument
 import os
 
 COMMAND_PREFIX = os.getenv('COMMAND_PREFIX')
@@ -16,4 +16,8 @@ def error_embed(title: str = None, description: str = None) -> Embed:
 
 async def send_guild_only_error(ctx: Context):
     embed = error_embed(title="Sorry! This command is only available in a server", description="I'm looking forward to playing private games in the future 😊")
+    return await ctx.send(embed=embed)
+
+async def send_missing_arg_error(ctx: Context, error: MissingRequiredArgument):
+    embed = error_embed(title=f"Error! Missing parameter {error.param.name}", description='Sorry bout that, double check you are adding the right key words. Try reading my docs for more help!')
     return await ctx.send(embed=embed)

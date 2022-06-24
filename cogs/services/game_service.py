@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 import uuid
 from discord.ext import commands
 from discord.guild import Guild
@@ -6,9 +6,20 @@ from models.game import Game
 
 # Database management for all Game models
 class GameService(commands.Cog):
-    def find_by_guild(self, guild: Guild) -> list[Game]:
+    def find_by_guild(self, guild: Guild) -> List[Game]:
         return Game.find(Game.guild_id == guild.id).all()
         
+    def find_by_guild_and_name(self, guild: Guild, name: str) -> Game:
+        games = Game.find((Game.guild_id == guild.id) & (Game.search_name == name.lower())).all()
+        if len(games) == 1:
+            return games[0]
+        elif len(games):
+            # TODO: Throw some error about duplicate entries
+            print(f'Error! {len(games)} with duplicate search name {name} found')
+            return games[0]
+        else:
+            return None
+
     def create(self, guild: Guild, game_name: Optional[str] = None) -> Game:
         '''
         Create a new game using the game name provided
@@ -20,7 +31,6 @@ class GameService(commands.Cog):
             search_name=self._create_search_name(display_name))
         game.save()
         return game
-        
 
     def _create_search_name(self, display_name: str) -> str:
         return display_name.lower()
@@ -46,8 +56,6 @@ class GameService(commands.Cog):
         Check only lowercased version of display names since all search names are identical anyway
         '''
         return name_attempt.lower() not in names
-
-        
         
         
 
