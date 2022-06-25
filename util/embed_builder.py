@@ -4,10 +4,17 @@ import os
 
 COMMAND_PREFIX = os.getenv('COMMAND_PREFIX')
 INFO_COLOR = 0x2ec3f5
+WARNING_COLOR = 0xfcc603
 ERROR_COLOR = 0xff0000
 
 def info_embed(title: str = None, description: str = None) -> Embed:
     embed = Embed(title=title, description=description, color=INFO_COLOR)
+    return embed
+
+def warning_embed(title: str = None, description: str = None) -> Embed:
+    embed = Embed(title=title, description=description, color=WARNING_COLOR)
+    warning_logo_url = 'https://i.imgur.com/sS9bIWd.png'
+    embed.set_author(name='Warning!', icon_url=warning_logo_url)
     return embed
 
 def error_embed(title: str = None, description: str = None) -> Embed:
@@ -24,7 +31,7 @@ async def send_missing_arg_error(ctx: Context, error: MissingRequiredArgument):
 
 async def send_generic_error(ctx: Context, error_message: str):
     '''
-    Generic error where something has gone terribly wrong
+    Generic error where something has gone terribly wrong.
     error_message is only printed to console and not sent to user
     '''
     await ctx.send(embed=error_embed(title='Whoops! 💀', description="Sorry, something has gone terribly wrong! I'll ask my makers to figure out what happend"))
