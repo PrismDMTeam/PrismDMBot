@@ -15,12 +15,18 @@ class GameController(commands.Cog):
     @commands.group()
     @guild_only()
     async def game(self, ctx: Context):
+        '''
+        General command for tabletop roleplaying games
+        '''
         if ctx.invoked_subcommand is None:
             embed = error_embed(title='Error! Missing subcommand')  # TODO: Upgrade to include rich error message
             return await ctx.send(embed=embed)
     
     @game.command(name='list', aliases=['ls', 'll'])
     async def list(self, ctx: Context):
+        '''
+        List all games on this server
+        '''
         games = self.game_service.find_by_guild(ctx.guild)
         if not games:
             return await self._send_no_games(ctx)
@@ -28,6 +34,9 @@ class GameController(commands.Cog):
 
     @game.command(name='show', aliases=['about', 'display'])
     async def show(self, ctx: Context, name: str):
+        '''
+        Get details about a game
+        '''
         game = self.game_service.find_by_guild_and_name(guild=ctx.guild, name=name)
         if not game:
             embed = error_embed(title='Game not found!',
@@ -59,6 +68,10 @@ class GameController(commands.Cog):
 
     @game.command(name='create', aliases=['add', 'new'])
     async def create(self, ctx: Context, name: str = None):
+        '''
+        Create a new game with the given name.
+        If name is not provided, create a game with the name "Game"
+        '''
         try:
             game = self.game_service.create(guild=ctx.guild, game_name=name)
         except ValidationError as error:
@@ -77,6 +90,9 @@ class GameController(commands.Cog):
 
     @game.command(name='delete', aliases=['del', 'remove'])
     async def delete(self, ctx: Context, name: str):
+        '''
+        Delete a game. WARNING! Can't be undone
+        '''
         # FIXME: Abstract into helper (affects show command)
         game = self.game_service.find_by_guild_and_name(guild=ctx.guild, name=name)
         if not game:
