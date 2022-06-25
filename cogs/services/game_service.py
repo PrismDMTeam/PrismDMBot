@@ -33,6 +33,9 @@ class GameService(commands.Cog):
         game.save()
         return game
 
+    def delete(self, game: Game):
+        Game.delete(game.pk)
+
     def _create_search_name(self, display_name: str) -> str:
         return display_name.lower()
 

@@ -7,14 +7,15 @@ INFO_COLOR = 0x2ec3f5
 WARNING_COLOR = 0xfcc603
 ERROR_COLOR = 0xff0000
 
+WARNING_LOGO_URL = 'https://i.imgur.com/sS9bIWd.png'  # Yellow exclamation mark
+
 def info_embed(title: str = None, description: str = None) -> Embed:
     embed = Embed(title=title, description=description, color=INFO_COLOR)
     return embed
 
 def warning_embed(title: str = None, description: str = None) -> Embed:
     embed = Embed(title=title, description=description, color=WARNING_COLOR)
-    warning_logo_url = 'https://i.imgur.com/sS9bIWd.png'
-    embed.set_author(name='Warning!', icon_url=warning_logo_url)
+    embed.set_author(name='Warning!', icon_url=WARNING_LOGO_URL)
     return embed
 
 def error_embed(title: str = None, description: str = None) -> Embed:

@@ -107,48 +107,39 @@ class GameController(commands.Cog):
         # Store variables before game gets deleted
         display_name = game.display_name
 
-        Game.delete(game.pk)
-        confirm_delete_embed = info_embed(title=f'Deleted game {display_name}', description='So long, and thanks for all the fish!')
-        return await ctx.send(embed=confirm_delete_embed)
+        delete_confirm_text = 'delete'
+        delete_confirm_timeout = 30  # 30 seconds
 
-        # delete_confirm_text = 'delete'
-        # delete_confirm_timeout = 30  # 30 seconds
+        embed = warning_embed(title=f'Are you sure you want to delete {display_name}?', description="Once you delete the game, you can't undo it!")
+        embed.add_field(name='Confirm', value=f'Type `{delete_confirm_text}` in the next {delete_confirm_timeout} seconds to confirm deletion')
+        embed.add_field(name='Cancel', value='Press the 🚫 button to cancel deletion')
 
-        # embed = warning_embed(title=f'Are you sure you want to delete {display_name}?', description="Once you delete the game, you can't undo it!")
-        # embed.add_field(name='Confirm', value=f'Type `{delete_confirm_text}` in the next {delete_confirm_timeout} seconds to confirm deletion')
-        # embed.add_field(name='Cancel', value='Press the 🚫 button to cancel deletion')
+        warning_message = await ctx.send(embed=embed)
+        await warning_message.add_reaction('🚫')
 
-        # warning_message = await ctx.send(embed=embed)
-        # await warning_message.add_reaction('🚫')
+        def check_message(m: Message):
+            '''Check that the author has sent a message but do NOT check text has matched'''
+            return m.channel == ctx.channel and m.author == ctx.author and m.content
 
-        # def check_message(m: Message):
-        #     '''Check that the author has sent a message but do NOT check text has matched'''
-        #     return m.channel == ctx.channel and m.author == ctx.author and m.content
+        def check_cancelled(reaction: Reaction, user: User):
+            return user == ctx.author and str(reaction.emoji) == '🚫'
 
-        # def check_cancelled(reaction: Reaction, user: User):
-        #     return user == ctx.author and str(reaction.emoji) == '🚫'
+        user_response_message = None
+        delete_is_confirmed = False
 
-        # delete_stopped_title = f'Game {display_name} deletion cancelled'
-        # delete_stopped_description = '\nPlease type the command again'
-        # delete_stopped_embed = warning_embed(title=delete_stopped_title, description='')
+        try:
+            user_response_message = await self.bot.wait_for('message', check=check_message, timeout=delete_confirm_timeout)
+        except asyncio.TimeoutError:
+            await self._update_delete_cancelled(message=warning_message, game_name=display_name, cancel_reason=f'No action taken after {delete_confirm_timeout} seconds.')
 
-        # user_response_message = None
+        if user_response_message:
+            if user_response_message.content.strip().lower() == delete_confirm_text:
+                delete_is_confirmed = True
+            else:
+                await self._update_delete_cancelled(message=warning_message, game_name=display_name, cancel_reason=f'Text did not match `{delete_confirm_text}`.')
 
-        # try:
-        #     user_response_message = await self.bot.wait_for('message', check=check_message, timeout=delete_confirm_timeout)
-            
-        # except asyncio.TimeoutError:
-        #     warning_embed(title=f'Are you sure you want to delete {display_name}?', description="Once you delete the game, you can't undo it!")
-
-        # if user_response_message:
-        #     if user_response_message.content.strip().lower() == delete_confirm_text:
-        #         Game.delete(game.pk)
-        #         confirm_delete_embed = info_embed(title=f'Deleted game {display_name}', description='So long, and thanks for all the fish!')
-        #         return await ctx.send(embed=confirm_delete_embed)
-        #     else:
-        #         delete_stopped_description = 'Text did not match `delete`' + delete_stopped_description
-        
-        
+        if delete_is_confirmed:
+            return await self._complete_deletion(ctx, game)
         
     async def _send_no_games(self, ctx: Context):
         description_lines = '\n'.join(['Get a game started with:',
@@ -207,3 +198,15 @@ class GameController(commands.Cog):
         
         embed = error_embed(title=title, description=description)
         return await ctx.send(embed=embed)
+
+    async def _complete_deletion(self, ctx: Context, game: Game):
+        self.game_service.delete(game)
+        confirm_delete_embed = info_embed(title=f'Deleted game {game.display_name}', description='So long, and thanks for all the fish!')
+        return await ctx.send(embed=confirm_delete_embed)
+
+    async def _update_delete_cancelled(self, message: Message, game_name: str, cancel_reason: str):
+        delete_stopped_title = f'Game {game_name} deletion cancelled'
+        delete_stopped_description = cancel_reason + '\nPlease type the command again.'
+        delete_stopped_embed = warning_embed(title=delete_stopped_title, description=delete_stopped_description)
+        await message.edit(embed=delete_stopped_embed)
+        await message.remove_reaction('🚫', self.bot.user)
