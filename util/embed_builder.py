@@ -21,3 +21,12 @@ async def send_guild_only_error(ctx: Context):
 async def send_missing_arg_error(ctx: Context, error: MissingRequiredArgument):
     embed = error_embed(title=f"Error! Missing parameter {error.param.name}", description='Sorry bout that, double check you are adding the right key words. Try reading my docs for more help!')
     return await ctx.send(embed=embed)
+
+async def send_generic_error(ctx: Context, error_message: str):
+    '''
+    Generic error where something has gone terribly wrong
+    error_message is only printed to console and not sent to user
+    '''
+    await ctx.send(embed=error_embed(title='Whoops! 💀', description="Sorry, something has gone terribly wrong! I'll ask my makers to figure out what happend"))
+    raise Exception(error_message)
+

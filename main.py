@@ -25,41 +25,9 @@ add_cogs(bot)
 async def test(ctx: Context):
     await ctx.channel.send('Pong!')
 
-@bot.command(name='setup')
-async def setup(ctx: Context):    
-    # game = Game(guild_id=ctx.guild.id, char_ids=[9, 8, 7])
-    # pk = game.pk
-    # print('!!! pk is ', pk)
-    # game.save()
-
-    game_service = bot.get_cog('GameService')
-    game = game_service.create(guild=ctx.guild)
-    await ctx.channel.send("Finished setting up game! Id: " + game.pk)
-
-
-@bot.command(name='showgame')
-async def showgame(ctx: Context, game_id: str):
-    game = Game.get(pk=game_id)
-    message = f'Game: {game.display_name}'
-    message += '\nSearch name: ' + game.search_name
-    if game.char_ids:
-        message += '\nchar_ids: ' + ', '.join(str(id) for id in game.char_ids)
-    await ctx.channel.send(message)
-
-# @bot.command(name='deletegame', aliases=['delgame'])
-# async def delgame(ctx: Context, game_id: str):
-
-# FIXME: Delete
-@bot.command(name='purge')
-async def purge(ctx: Context):
-    games = Game.find(Game.guild_id==ctx.guild.id).all()
-    for game in games:
-        Game.delete(game.pk)
-    await ctx.channel.send("Bye games!")
-
 @bot.event
 async def on_command_error(ctx: Context, error: CommandError):
     if isinstance(error, NoPrivateMessage):
-        return await send_guild_only_error()
+        return await send_guild_only_error(ctx)
 
 bot.run(DISCORD_TOKEN)

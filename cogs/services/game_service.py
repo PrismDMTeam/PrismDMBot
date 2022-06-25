@@ -24,8 +24,9 @@ class GameService(commands.Cog):
         '''
         Create a new game using the game name provided
         If no game name is provided, will try to name it the first available name, such as Game, Game1, Game2, Game3 etc.
+        Raises ValidationError if name is too short or too long
         '''
-        display_name = game_name or self._create_unique_name(guild=guild, game_name='Game')
+        display_name = self._create_unique_name(guild=guild, game_name=game_name or 'Game')
         game = Game(guild_id = guild.id,
             display_name=display_name,
             search_name=self._create_search_name(display_name))
