@@ -108,28 +108,38 @@ class GameController(commands.Cog):
         display_name = game.display_name
 
         delete_confirm_text = 'delete'
+        delete_cancel_emoji = '🚫'
         delete_confirm_timeout = 30  # 30 seconds
 
         embed = warning_embed(title=f'Are you sure you want to delete {display_name}?', description="Once you delete the game, you can't undo it!")
         embed.add_field(name='Confirm', value=f'Type `{delete_confirm_text}` in the next {delete_confirm_timeout} seconds to confirm deletion')
-        embed.add_field(name='Cancel', value='Press the 🚫 button to cancel deletion')
+        embed.add_field(name='Cancel', value=f'Press the {delete_cancel_emoji} button to cancel deletion')
 
         warning_message = await ctx.send(embed=embed)
-        await warning_message.add_reaction('🚫')
+        await warning_message.add_reaction(delete_cancel_emoji)
 
         def check_message(m: Message):
             '''Check that the author has sent a message but do NOT check text has matched'''
-            return m.channel == ctx.channel and m.author == ctx.author and m.content
+            return m.channel == ctx.channel and m.author == ctx.author
 
         def check_cancelled(reaction: Reaction, user: User):
-            return user == ctx.author and str(reaction.emoji) == '🚫'
+            '''Check that the author has reacted with the cancel emoji'''
+            return user == ctx.author and str(reaction.emoji) == delete_cancel_emoji
 
         user_response_message = None
         delete_is_confirmed = False
 
-        try:
-            user_response_message = await self.bot.wait_for('message', check=check_message, timeout=delete_confirm_timeout)
-        except asyncio.TimeoutError:
+        user_response_message_task = asyncio.create_task(self.bot.wait_for('message', check=check_message))
+        user_react_task = asyncio.create_task(self.bot.wait_for('reaction_add', check=check_cancelled))
+        task_options = {user_response_message_task, user_react_task}
+        done_tasks, pending_tasks = await asyncio.wait(task_options, timeout=delete_confirm_timeout, return_when=asyncio.FIRST_COMPLETED)
+
+        if user_response_message_task in done_tasks:
+            user_response_message = user_response_message_task.result()
+        elif user_react_task in done_tasks:
+            await self._update_delete_cancelled(message=warning_message, game_name=display_name, cancel_reason=f'{delete_cancel_emoji} has been pressed.')    
+        elif len(pending_tasks) == len(task_options):
+            # No option chosen after timeout
             await self._update_delete_cancelled(message=warning_message, game_name=display_name, cancel_reason=f'No action taken after {delete_confirm_timeout} seconds.')
 
         if user_response_message:
