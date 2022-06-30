@@ -1,9 +1,10 @@
 import os
 from dotenv import load_dotenv
 from discord.ext.commands import Bot, Context, CommandError, NoPrivateMessage
-from cogs.services.game_service import GameService
+from cogs.controllers.character_controller import CharacterController
 from cogs.controllers.game_controller import GameController
 from cogs.controllers.message_controller import MessageController
+from cogs.services.game_service import GameService
 from util.embed_builder import send_guild_only_error
 
 load_dotenv()
@@ -16,6 +17,7 @@ def add_cogs(bot: Bot):
     bot.add_cog(game_service)
 
     bot.add_cog(GameController(bot, game_service))
+    bot.add_cog(CharacterController(bot))
     bot.add_cog(MessageController(bot))
 
 bot = Bot(command_prefix=COMMAND_PREFIX)
