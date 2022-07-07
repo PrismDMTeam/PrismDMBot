@@ -30,11 +30,16 @@ async def send_missing_arg_error(ctx: Context, error: MissingRequiredArgument):
     embed = error_embed(title=f"Error! Missing parameter {error.param.name}", description='Sorry bout that, double check you are adding the right key words. Try reading my docs for more help!')
     return await ctx.send(embed=embed)
 
-async def send_generic_error(ctx: Context, error_message: str):
+async def send_generic_error(ctx: Context, error: Exception = None, error_message: str = None):
     '''
     Generic error where something has gone terribly wrong.
-    error_message is only printed to console and not sent to user
+    If error is provided, bubble the error up
+    If error_message is provided, then raise a new exception with the error. The message is not propogated up to the Discord user
     '''
     await ctx.send(embed=error_embed(title='Whoops! 💀', description="Sorry, something has gone terribly wrong! I'll ask my makers to figure out what happend"))
-    raise Exception(error_message)
+    
+    if error:
+        raise error
+    elif error_message:
+        raise Exception(error_message)
 

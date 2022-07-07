@@ -1,10 +1,12 @@
 import os
 from dotenv import load_dotenv
+from discord import Intents
 from discord.ext.commands import Bot, Context, CommandError, NoPrivateMessage
 from cogs.controllers.character_controller import CharacterController
 from cogs.controllers.game_controller import GameController
 from cogs.controllers.message_controller import MessageController
 from cogs.services.game_service import GameService
+from cogs.services.character_service import CharacterService
 from util.embed_builder import send_guild_only_error
 
 load_dotenv()
@@ -12,15 +14,19 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 COMMAND_PREFIX = os.getenv('COMMAND_PREFIX')
 
+# TODO: Migration to discord.py 2.0.0 will require await keyword for all add_cog calls
 def add_cogs(bot: Bot):
     game_service = GameService()
     bot.add_cog(game_service)
+    character_service = CharacterService(bot)
+    bot.add_cog(character_service)
 
     bot.add_cog(GameController(bot, game_service))
-    bot.add_cog(CharacterController(bot))
+    bot.add_cog(CharacterController(bot, game_service, character_service))
     bot.add_cog(MessageController(bot))
 
-bot = Bot(command_prefix=COMMAND_PREFIX)
+bot = Bot(command_prefix=COMMAND_PREFIX, intents=Intents.default())
+# TODO: Add async with bot:  to make call this line async and await (discord.py 2.0.0)
 add_cogs(bot)
 
 @bot.command(name='ping')
