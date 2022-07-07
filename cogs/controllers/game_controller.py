@@ -1,5 +1,6 @@
 import asyncio
-from discord import Message
+from distutils.log import error
+from discord import Message, TextChannel, CategoryChannel
 from discord import User
 from discord import Reaction
 from discord.ext import commands
@@ -8,6 +9,7 @@ from typing import List
 
 from pydantic import ValidationError
 from cogs.services.game_service import GameService
+from converters import GameConverter, GameNotFoundError, send_game_not_found
 from models.game import Game
 from util.embed_builder import COMMAND_PREFIX, info_embed, warning_embed, error_embed, send_generic_error
 
@@ -42,6 +44,7 @@ class GameController(commands.Cog):
         Get details about a game
         '''
         game = self.game_service.find_by_guild_and_name(guild=ctx.guild, name=name)
+        # FIXME: replace with game_converter version
         if not game:
             embed = error_embed(title='Game not found!',
                 description='Sorry! We could not find a game with the name **{}**.\nTry `{}game list` to see all available games.'.format(name, COMMAND_PREFIX))
@@ -66,7 +69,7 @@ class GameController(commands.Cog):
             return await ctx.send(embed=embed)
         else:
             # TODO: figure out how to debug this
-            send_generic_error(ctx, f'Unexpected error in show_error command {error}')
+            send_generic_error(ctx, error_message=f'Unexpected error in show_error command {error}')
             print("Command game show says help! Some totally different error here!", error)
             raise error
 
@@ -150,7 +153,64 @@ class GameController(commands.Cog):
 
         if delete_is_confirmed:
             return await self._complete_deletion(ctx, game)
+
+    @game.group(name='channel', aliases=['textchannel'])
+    async def channel(self, ctx: Context):
+        if ctx.invoked_subcommand is None:
+            embed = error_embed(title='Error! Missing subcommand for channel subcommand')  # TODO: Upgrade to include rich error message
+            return await ctx.send(embed=embed)
+
+    @channel.command(name='use', aliases=['set'])
+    async def use_channel(self, ctx: Context, game: GameConverter = None, channel: TextChannel = None):
+        '''
+        Assign the channel to default to using the given game for all commands that require game as an optional parameter.
         
+        Either game, channel or both must be provided.
+        * If both game and channel are provided, then the given channel will default to the given game.
+        * If only game is provided, then this channel will default to the given game.
+        * If only channel is provided, then the given channel will default to the game that is default for this channel.
+        '''
+        if not game and not channel:
+            embed = error_embed(title=f'Error! Missing parameter game or channel', description="I'm not pyschic. I need you to give the name of a **game** or a **channel**.")
+            return await ctx.send(embed=embed)
+        
+        channel = channel or ctx.channel
+        altered_game = self.game_service.add_channel(game=game, channel=channel)
+
+        description = f'The channel {channel.mention} will now default to using the game **{game.display_name}**. Less typing for you!'
+        if altered_game:
+            description += f'Your other game **{altered_game.display_name}** will no longer'
+
+        embed = info_embed(title=f'Game **{game.display_name}** set for channel {channel.mention}')
+
+    @use_channel.error
+    async def use_channel_error(self, ctx: Context, error: CommandError):
+        if isinstance(error, GameNotFoundError):
+            return await error.send_error(ctx)
+        else:
+            return await send_generic_error(ctx, error=error)
+
+    @channel.command(name='show')
+    async def show_channel(self, ctx: Context, game: GameConverter = None, channel: TextChannel = None):
+        # FIXME: Merge with other channel errors
+
+        if not game and not channel:
+            embed = error_embed(title=f'Error! Missing parameter game or channel', description="I'm not pyschic. I need you to give the name of a **game** or a **channel**.")
+            return await ctx.send(embed=embed)
+        
+        if game:
+            return await self._send_channel_list(ctx=ctx, game=game)
+
+
+    @show_channel.error
+    async def show_channel_error(self, ctx: Context, error: CommandError):
+        # FIXME: Merge with other channel errors
+        if isinstance(error, GameNotFoundError):
+            return await error.send_error(ctx)
+        else:
+            return await send_generic_error(ctx, error=error)
+
+
     async def _send_no_games(self, ctx: Context):
         description_lines = '\n'.join(['Get a game started with:',
             '```',
@@ -162,6 +222,7 @@ class GameController(commands.Cog):
     
     async def _send_games_list(self, ctx: Context, games: List[Game]):
         # Guild name. Truncate to 20 characters if name is excessively long
+        # FIXME: Extract into helper and apply universally
         guild_name = ctx.guild.name
         if len(guild_name) > 20:
             guild_name = guild_name[:17] + '...'
@@ -188,7 +249,36 @@ class GameController(commands.Cog):
         if footer:
             embed.set_footer(text=footer)
         
-        await ctx.send(embed=embed)
+        return await ctx.send(embed=embed)
+
+    async def _send_channel_list(self, ctx: Context, game: Game):
+        channel_ids = game.text_channel_ids
+        num_channels = len(channel_ids)
+        channels = [ctx.guild.get_channel(id) for id in channel_ids]
+
+        title = f'Game **{game.display_name}** is the default game for {num_channels} channel{"s" if num_channels != 1 else "s"}'
+        description = '\n'.join(['The following channels use this game as the default game.', 
+            'Type `{COMMAND_PREFIX}game channel use <game name> <channel name>` to change a channel to use a different game or o add more games here'.])
+        embed = info_embed(title=title, description=description)
+
+        field_name = 'Channels:'
+        field_value = ''
+        footer = None
+        for channel in channels:
+            # Check that length of embed does not 6000 character limit (with buffer room for extra text)
+            if len(embed) + len(channel.mention) + 4 <= 5930:
+                field_value += '- {}\n'.format(channel.mention)
+            else:
+                # TODO: Wow, that's a lot of channels. Add some pagination!
+                footer = "Wow that's a lot of channels. Delete some with `{COMMAND_PREFIX}game channel delete <channel>`"
+                break
+
+        embed.add_field(name=field_name, value=field_value, inline=False)
+
+        if footer:
+            embed.set_footer(text=footer)
+        
+        return await ctx.send(embed=embed)
 
     async def _send_name_length_error(self, ctx: Context, name: str, error: ValidationError):
         errors = error.errors()
@@ -201,7 +291,7 @@ class GameController(commands.Cog):
         elif name_too_long_error:
             length_error_text = ['long', 'at most', str(name_too_long_error['ctx']['limit_value'])]
         else:
-            return await send_generic_error(ctx, 'Expected either name to be too short or name to be too long, instead got errors:\n' + str(error))
+            return await send_generic_error(ctx, error_message='Expected either name to be too short or name to be too long, instead got errors:\n' + str(error))
 
         title = f'Error! Your name is too {length_error_text[0]}!'
         description = f'Please change your name **{name}** to be {length_error_text[1]} **{length_error_text[2]}** characters long and try again'

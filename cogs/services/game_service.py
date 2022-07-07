@@ -1,8 +1,10 @@
 from typing import Optional, List
-import uuid
+from redis_om import NotFoundError
 from discord.ext import commands
-from discord.guild import Guild
+from discord import Guild, TextChannel, CategoryChannel
 from models.game import Game
+from models.character import Character
+from util.name_builder import create_unique_name, create_search_name
 
 # Database management for all Game models
 class GameService(commands.Cog):
@@ -10,7 +12,7 @@ class GameService(commands.Cog):
         return Game.find(Game.guild_id == guild.id).all()
         
     def find_by_guild_and_name(self, guild: Guild, name: str) -> Game:
-        games = Game.find((Game.guild_id == guild.id) & (Game.search_name == name.lower())).all()
+        games = Game.find((Game.guild_id == guild.id) & (Game.search_name == name.casefold())).all()
         if len(games) == 1:
             return games[0]
         elif len(games):
@@ -20,46 +22,77 @@ class GameService(commands.Cog):
         else:
             return None
 
+    def find_by_channel(self, channel: TextChannel) -> Game | None:
+        try:
+            return Game.find((Game.guild_id == channel.guild.id) & (channel.id in Game.text_channel_ids)).first()
+        except NotFoundError:
+            return None
+
+    def find_by_category(self, category: CategoryChannel) -> Game | None:
+        try:
+            return Game.find((Game.guild_id == category.guild.id) & (category.id in Game.category_ids)).first()
+        except NotFoundError:
+            return None
+
     def create(self, guild: Guild, game_name: Optional[str] = None) -> Game:
         '''
         Create a new game using the game name provided
         If no game name is provided, will try to name it the first available name, such as Game, Game1, Game2, Game3 etc.
         Raises ValidationError if name is too short or too long
         '''
-        display_name = self._create_unique_name(guild=guild, game_name=game_name or 'Game')
+        game_names = {game.display_name for game in self.find_by_guild(guild)}
+        display_name = create_unique_name(name_attempt=game_name or 'Game', existing_names=game_names)
+
         game = Game(guild_id = guild.id,
             display_name=display_name,
-            search_name=self._create_search_name(display_name))
+            search_name=create_search_name(display_name),
+            text_channel_ids=set(),
+            category_ids=set())
         game.save()
         return game
 
     def delete(self, game: Game):
         Game.delete(game.pk)
 
-    def _create_search_name(self, display_name: str) -> str:
-        return display_name.lower()
-
-    def _create_unique_name(self, guild: Guild, game_name: str) -> str:
-        games = self.find_by_guild(guild)
-        lower_display_names = {game.display_name.lower() for game in games}
-        
-        if self._is_name_free(name_attempt=game_name, names=lower_display_names):
-            return game_name
-
-        for i in range(1, 1000):
-            name_attempt = game_name + str(i)
-            if self._is_name_free(name_attempt=name_attempt, names=lower_display_names):
-                return name_attempt
-
-        # Failsafe - return a random UUID
-        return str(uuid.uuid4())
-
-    def _is_name_free(self, name_attempt: str, names: set[str]) -> bool:
+    def add_channel(self, game: Game, channel: TextChannel) -> Game | None:
         '''
-        Check if the proposed name is free
-        Check only lowercased version of display names since all search names are identical anyway
+        Adds the given channel to this game's list of channel IDs
+        If this channel exists in any other game, then remove the channel from that game and return that game
         '''
-        return name_attempt.lower() not in names
-        
-        
+        existing_game = self.find_by_channel(channel=channel)
+        if existing_game:
+            existing_game.text_channel_ids.remove(channel.id)
+            existing_game.save()
 
+        game.text_channel_ids.add(channel.id)
+        game.save()
+
+        return existing_game
+
+    def add_category(self, game: Game, category: CategoryChannel) -> Game | None:
+        '''
+        Adds the given category to this game's list of category IDs
+        If this category exists in any other game, then remove the category from that game and return that game
+        '''
+        existing_game = self.find_by_category(category=category)
+        if existing_game:
+            existing_game.category_ids.remove(category.id)
+            existing_game.save()
+
+        game.category_ids.add(category.id)
+        game.save()
+
+        return existing_game
+
+    def add_character(self, game: Game, character: Character):
+        if not game.char_ids:
+            game.char_ids = []
+        game.char_ids.append(character.pk)
+        game.save()
+        return character
+
+    def delete_character(self, game: Game, character: Character):
+        if not game.char_ids or character.pk not in game.char_ids:
+            return None
+        game.char_ids.remove(character.pk)
+        return character
