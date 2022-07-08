@@ -24,13 +24,13 @@ class GameService(commands.Cog):
 
     def find_by_channel(self, channel: TextChannel) -> Game | None:
         try:
-            return Game.find((Game.guild_id == channel.guild.id) & (channel.id in Game.text_channel_ids)).first()
+            return Game.find((Game.guild_id == channel.guild.id) & (Game.text_channel_ids << str(channel.id))).first()
         except NotFoundError:
             return None
 
     def find_by_category(self, category: CategoryChannel) -> Game | None:
         try:
-            return Game.find((Game.guild_id == category.guild.id) & (category.id in Game.category_ids)).first()
+            return Game.find((Game.guild_id == category.guild.id) & (Game.category_ids << str(category.id))).first()
         except NotFoundError:
             return None
 
@@ -57,14 +57,19 @@ class GameService(commands.Cog):
     def add_channel(self, game: Game, channel: TextChannel) -> Game | None:
         '''
         Adds the given channel to this game's list of channel IDs
-        If this channel exists in any other game, then remove the channel from that game and return that game
+        If this channel exists in any other game, then remove the channel from that game and return that game.
+        If this channel already exists in this game, then just return the game with no changes.
         '''
         existing_game = self.find_by_channel(channel=channel)
         if existing_game:
-            existing_game.text_channel_ids.remove(channel.id)
+            if existing_game == game:
+                return game
+
+            existing_game.text_channel_ids.remove(str(channel.id))
             existing_game.save()
 
-        game.text_channel_ids.add(channel.id)
+        game.text_channel_ids = game.text_channel_ids or []
+        game.text_channel_ids.append(str(channel.id))
         game.save()
 
         return existing_game
@@ -76,10 +81,11 @@ class GameService(commands.Cog):
         '''
         existing_game = self.find_by_category(category=category)
         if existing_game:
-            existing_game.category_ids.remove(category.id)
+            existing_game.category_ids.remove(str(category.id))
             existing_game.save()
 
-        game.category_ids.add(category.id)
+        game.category_ids = game.category_ids or []
+        game.category_ids.append(str(category.id))
         game.save()
 
         return existing_game
