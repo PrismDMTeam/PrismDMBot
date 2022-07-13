@@ -2,9 +2,7 @@ import os
 from dotenv import load_dotenv
 from discord import Intents
 from discord.ext.commands import Bot, Context, CommandError, NoPrivateMessage
-from cogs.controllers.character_controller import CharacterController
-from cogs.controllers.game_controller import GameController
-from cogs.controllers.message_controller import MessageController
+from cogs.controllers import GameController, CharacterController, MessageController
 from cogs.services.game_service import GameService
 from cogs.services.character_service import CharacterService
 from util.embed_builder import send_guild_only_error

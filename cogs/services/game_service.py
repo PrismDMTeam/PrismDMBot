@@ -46,8 +46,8 @@ class GameService(commands.Cog):
         game = Game(guild_id = guild.id,
             display_name=display_name,
             search_name=create_search_name(display_name),
-            text_channel_ids=set(),
-            category_ids=set())
+            text_channel_ids=[],
+            category_ids=[])
         game.save()
         return game
 
@@ -74,6 +74,10 @@ class GameService(commands.Cog):
 
         return existing_game
 
+    def delete_channel(self, game: Game, channel: TextChannel):
+        game.text_channel_ids.remove(str(channel.id))
+        game.save()
+
     def add_category(self, game: Game, category: CategoryChannel) -> Game | None:
         '''
         Adds the given category to this game's list of category IDs
@@ -89,6 +93,11 @@ class GameService(commands.Cog):
         game.save()
 
         return existing_game
+
+    def delete_category(self, game: Game, category: CategoryChannel):
+        game.category_ids.remove(str(category.id))
+        game.save()
+
 
     def add_character(self, game: Game, character: Character):
         if not game.char_ids:

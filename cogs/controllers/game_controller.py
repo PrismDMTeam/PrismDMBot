@@ -7,15 +7,21 @@ from discord.ext.commands import Bot, Context, MissingRequiredArgument, CommandE
 from typing import List, Optional
 
 from pydantic import ValidationError
-from cogs.services.game_service import GameService
+from cogs.services import GameService
 from converters import GameConverter, GameNotFoundError, send_game_not_found
 from models.game import Game
+from subcogs import GameChannelController
 from util.embed_builder import COMMAND_PREFIX, info_embed, warning_embed, error_embed, send_generic_error
 
 class GameController(commands.Cog):
     def __init__(self, bot: Bot, game_service: GameService):
         self.bot = bot
         self.game_service = game_service
+        self.game_channel_controller = GameChannelController(bot=self.bot, game_service=self.game_service)
+
+    async def cog_after_invoke(self, ctx: Context):
+        '''Special function called after all commands in this cog'''
+        await self.game_channel_controller.category_after_invoke(ctx)
 
     @commands.group()
     @guild_only()
@@ -26,7 +32,7 @@ class GameController(commands.Cog):
         if ctx.invoked_subcommand is None:
             embed = error_embed(title='Error! Missing subcommand')  # TODO: Upgrade to include rich error message
             return await ctx.send(embed=embed)
-    
+
     @game.command(name='list', aliases=['ls', 'll'])
     async def list(self, ctx: Context):
         '''
@@ -38,22 +44,18 @@ class GameController(commands.Cog):
         return await self._send_games_list(ctx, games)
 
     @game.command(name='show', aliases=['about', 'display'])
-    async def show(self, ctx: Context, name: str):
+    async def show(self, ctx: Context, game: Optional[GameConverter]):
         '''
         Get details about a game
         '''
-        game = self.game_service.find_by_guild_and_name(guild=ctx.guild, name=name)
-        # FIXME: replace with game_converter version
-        if not game:
-            embed = error_embed(title='Game not found!',
-                description='Sorry! We could not find a game with the name **{}**.\nTry `{}game list` to see all available games.'.format(name, COMMAND_PREFIX))
-            return await ctx.send(embed=embed)
-
         created_ts_str = game.created_ts.strftime("%Y-%m-%d %H:%M:%S")
         description = f'_{created_ts_str}_'
 
         embed = info_embed(title=game.display_name, description=description)
         embed.add_field(name='Type', value=game.type, inline=True)
+        embed.add_field(name='Default in',value='Default game in **{}** channels\nDefault game in **{}** categories'.format(
+            len(game.text_channel_ids) if game.text_channel_ids else 0,
+            len(game.category_ids) if game.category_ids else 0))
         embed.set_footer(text=f'ID: {game.pk}')
 
         return await ctx.send(embed=embed)
@@ -73,7 +75,7 @@ class GameController(commands.Cog):
             raise error
 
     @game.command(name='create', aliases=['add', 'new'])
-    async def create(self, ctx: Context, name: str = None):
+    async def create(self, ctx: Context, name: Optional[str]):
         '''
         Create a new game with the given name.
         If name is not provided, create a game with the name "Game"
@@ -94,18 +96,15 @@ class GameController(commands.Cog):
         embed.set_footer(text=f'ID: {game.pk}')
         await ctx.send(embed=embed)
 
-    @game.command(name='delete', aliases=['del', 'remove'])
-    async def delete(self, ctx: Context, name: str):
+    @create.error
+    async def create_error(self, ctx: Context, error: CommandError):
+        return await send_generic_error(ctx, error)
+
+    @game.command(name='delete', aliases=['remove', 'del'])
+    async def delete(self, ctx: Context, game: GameConverter):
         '''
         Delete a game. WARNING! Can't be undone
         '''
-        # FIXME: Abstract into helper (affects show command)
-        game = self.game_service.find_by_guild_and_name(guild=ctx.guild, name=name)
-        if not game:
-            embed = error_embed(title='Game not found!',
-                description='Sorry! We could not find a game with the name **{}**.\nTry `{}game list` to see all available games.'.format(name, COMMAND_PREFIX))
-            return await ctx.send(embed=embed)
-
         # Store variables before game gets deleted
         display_name = game.display_name
 
@@ -153,11 +152,17 @@ class GameController(commands.Cog):
         if delete_is_confirmed:
             return await self._complete_deletion(ctx, game)
 
+    @delete.error
+    async def delete_error(self, ctx: Context, error: CommandError):
+        if isinstance(error, GameNotFoundError):
+            return await error.send_error(ctx)
+        else:
+            return await send_generic_error(ctx, error=error)
+
     @game.group(name='channel', aliases=['textchannel'])
     async def channel(self, ctx: Context):
-        if ctx.invoked_subcommand is None:
-            embed = error_embed(title='Error! Missing subcommand for channel subcommand')  # TODO: Upgrade to include rich error message
-            return await ctx.send(embed=embed)
+        '''Manage default games assigned per channel'''
+        return await self.game_channel_controller.channel(ctx)
 
     @channel.command(name='use', aliases=['set'])
     async def use_channel(self, ctx: Context, game: Optional[GameConverter], channel: Optional[TextChannel]):
@@ -169,29 +174,11 @@ class GameController(commands.Cog):
         * If only game is provided, then this channel will default to the given game.
         * If only channel is provided, then the given channel will default to the game that is default for this channel.
         '''
-        if not game and not channel:
-            embed = error_embed(title=f'Error! Missing parameter game or channel', description="I'm not pyschic. I need you to give the name of a **game** or a **channel**.")
-            return await ctx.send(embed=embed)
-        
-        channel = channel or ctx.channel
-        altered_game = self.game_service.add_channel(game=game, channel=channel)
-
-        description = f'The channel {channel.mention} will now default to using the game **{game.display_name}**. Less typing for you!'
-        if altered_game:
-            if altered_game == game:
-                embed = error_embed(title=f'Error! Game **{game.display_name}** already has the channel #{channel.name}', description='You can see all channels ')
-
-            description += f'Your other game **{altered_game.display_name}** will no longer use the channel as the default'
-
-        embed = info_embed(title=f'Game **{game.display_name}** set for channel #{channel.name}', description=description)
-        return await ctx.send(embed=embed)
+        return await self.game_channel_controller.use_channel(ctx=ctx, game=game, channel=channel)
 
     @use_channel.error
     async def use_channel_error(self, ctx: Context, error: CommandError):
-        if isinstance(error, GameNotFoundError):
-            return await error.send_error(ctx)
-        else:
-            return await send_generic_error(ctx, error=error)
+        return await self.game_channel_controller.use_channel_error(ctx=ctx, error=error)
 
     @channel.command(name='show')
     async def show_channel(self, ctx: Context, game: Optional[GameConverter], channel: Optional[TextChannel]):
@@ -201,24 +188,68 @@ class GameController(commands.Cog):
         If channel is provided, show the game that the provided channel uses as the default.
         If neither is provied, show the game that this channel uses as the default.
         '''
-
-        if not game and not channel:
-            channel = ctx.channel
-        
-        if game:
-            return await self._send_channel_list(ctx=ctx, game=game)
-
-        if channel:
-            return await self._send_game_using_channel(ctx=ctx, channel=channel)
+        return await self.game_channel_controller.show_channel(ctx=ctx, game=game, channel=channel)
 
     @show_channel.error
     async def show_channel_error(self, ctx: Context, error: CommandError):
-        # FIXME: try nonexistent game name, see if this error shows up as expected
-        # FIXME: Merge with other channel errors
-        if isinstance(error, GameNotFoundError):
-            return await error.send_error(ctx)
-        else:
-            return await send_generic_error(ctx, error=error)
+        return await self.game_channel_controller.show_channel_error(ctx=ctx, error=error)
+
+    @channel.command(name='delete', aliases=['remove', 'del'])
+    async def delete_channel(self, ctx: Context, game: Optional[GameConverter], channel: Optional[TextChannel]):
+        '''
+        Remove the default game assigned to the given channel.
+        '''
+        return await self.game_channel_controller.delete_channel(ctx=ctx, game=game, channel=channel)
+
+    @delete_channel.error
+    async def delete_channel_error(self, ctx: Context, error: CommandError):
+        return await self.game_channel_controller.delete_channel_error(ctx=ctx, error=error)
+
+    @game.group(name='category', aliases=['cat', '🐱', '🐈', '😸', '😹', '😺', '😻', '😼', '😽', '😾', '😿', '🙀'])
+    async def category(self, ctx: Context):
+        '''Manage default games assigned per category'''
+        return await self.game_channel_controller.category(ctx)
+
+    @category.command(name='use', aliases=['set'])
+    async def use_category(self, ctx: Context, game: Optional[GameConverter], category: Optional[CategoryChannel]):
+        '''
+        Assign the category to default to using the given game for all commands that require game as an optional parameter.
+        
+        Either game, category or both must be provided.
+        * If both game and category are provided, then the given category will default to the given game.
+        * If only game is provided, then this category will default to the given game.
+        * If only category is provided, then the given category will default to the game that is default for this category.
+        '''
+        return await self.game_channel_controller.use_category(ctx=ctx, game=game, category=category)
+
+    @use_category.error
+    async def use_category_error(self, ctx: Context, error: CommandError):
+        return await self.game_channel_controller.use_category_error(ctx=ctx, error=error)
+
+    @category.command(name='show')
+    async def show_category(self, ctx: Context, game: Optional[GameConverter], category: Optional[CategoryChannel]):
+        '''
+        Show info about the default game used for a category
+        If game is provided, show the categories that use this game as the default. Takes precedence over category
+        If category is provided, show the game that the provided category uses as the default.
+        If neither is provied, show the game that this category uses as the default.
+        '''
+        return await self.game_channel_controller.show_category(ctx=ctx, game=game, category=category)
+
+    @show_category.error
+    async def show_category_error(self, ctx: Context, error: CommandError):
+        return await self.game_channel_controller.show_category_error(ctx=ctx, error=error)
+
+    @category.command(name='delete', aliases=['remove', 'del'])
+    async def delete_category(self, ctx: Context, game: Optional[GameConverter], category: Optional[CategoryChannel]):
+        '''
+        Remove the default game assigned to the given category.
+        '''
+        return await self.game_channel_controller.delete_category(ctx=ctx, game=game, category=category)
+
+    @delete_category.error
+    async def delete_category_error(self, ctx: Context, error: CommandError):
+        return await self.game_channel_controller.delete_category_error(ctx=ctx, error=error)
 
     async def _send_no_games(self, ctx: Context):
         embed = info_embed(title=f"{ctx.guild.name} doesn't have any games!", description=f'Get a game started with: `{COMMAND_PREFIX}game create MyAwesomeGame`')
@@ -255,59 +286,6 @@ class GameController(commands.Cog):
             embed.set_footer(text=footer)
         
         return await ctx.send(embed=embed)
-
-    async def _send_channel_list(self, ctx: Context, game: Game):
-        channel_ids = game.text_channel_ids
-        
-        if not channel_ids:
-            title = f'Game **{game.display_name}** is not set as the default game for any channels yet!'
-            description = f'Type `{COMMAND_PREFIX}game channel use <game name> <channel name>` to make this the default game for a channel. You\'ll thank me later 😉'
-            embed = info_embed(title=title, description=description)
-            return await ctx.send(embed=embed)
-
-        num_channels = len(channel_ids)
-        channels = [ctx.guild.get_channel(id) for id in channel_ids]
-
-        title = f'Game **{game.display_name}** is the default game for {num_channels} channel{"s" if num_channels != 1 else ""}'
-        description = '\n'.join(['The following channels use this game as the default game.', 
-            f'Type `{COMMAND_PREFIX}game channel use <game name> <channel name>` to change a channel to use a different game or to add more channels here.'])
-        embed = info_embed(title=title, description=description)
-
-        field_name = 'Channels:'
-        field_value = ''
-        footer = None
-        for channel in channels:
-            # Check that length of embed does not 6000 character limit (with buffer room for extra text)
-            if len(embed) + len(channel.mention) + 4 <= 5930:
-                field_value += '- {}\n'.format(channel.mention)
-            else:
-                # TODO: Wow, that's a lot of channels. Add some pagination!
-                footer = f"Wow that's a lot of channels. Delete some with `{COMMAND_PREFIX}game channel delete <channel>`"
-                break
-
-        embed.add_field(name=field_name, value=field_value, inline=False)
-
-        if footer:
-            embed.set_footer(text=footer)
-        
-        return await ctx.send(embed=embed)
-
-    async def _send_game_using_channel(self, ctx: Context, channel: TextChannel):
-        game = self.game_service.find_by_channel(channel=channel)
-        
-        tip_line = f'To change the default game for this channel, type `{COMMAND_PREFIX}game channel use <game_name> #{channel.name}`'
-
-        if game:
-            title = f'Game **{game.display_name}** is the default game for #{channel.name}'
-            description = '\n'.join([f'Whenever a command sent in the channel {channel.mention} has an optional `[game]` parameter, the game **{game.display_name}** will be used as the default.',
-            tip_line])
-            return await ctx.send(embed=info_embed(title=title, description=description))
-        else:
-            title = f"The channel #{channel.name} doesn't have a default game!"
-            description = '\n'.join([f'If you set a default game for this channel, then whenever a command sent in the channel {channel.mention} has an optional `[game]` parameter, that game will be used as the default.',
-            tip_line,
-            "If you or your fellow players plan to use this channel a lot for a game, I recommend you try it out! 😊"])
-            return await ctx.send(embed=info_embed(title=title, description=description))
 
     async def _send_name_length_error(self, ctx: Context, name: str, error: ValidationError):
         errors = error.errors()

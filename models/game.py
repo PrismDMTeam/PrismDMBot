@@ -5,7 +5,7 @@ import datetime
 from models import BaseModel
 
 class Game(BaseModel):
-    created_ts: Optional[datetime.datetime] = Field(default_factory=datetime.datetime.now(datetime.timezone.utc))  # Creation timestamp
+    created_ts: Optional[datetime.datetime] = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))  # Creation timestamp
     guild_id: int = Field(index=True)
     
     text_channel_ids: List[str] = Field(index=True)

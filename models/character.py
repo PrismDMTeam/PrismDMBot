@@ -11,7 +11,7 @@ class Attribute(BaseModel):
     max_value: Optional[int]
 
 class Character(BaseModel):
-    created_ts: Optional[datetime.datetime] = Field(default_factory=datetime.datetime.now(datetime.timezone.utc))  # Creation timestamp
+    created_ts: Optional[datetime.datetime] = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))  # Creation timestamp
     player_id: Optional[int] = Field(default=None, index=True)
     game_id: str = Field(index=True)
 
