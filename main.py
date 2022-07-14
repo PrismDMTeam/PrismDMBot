@@ -5,6 +5,7 @@ from discord.ext.commands import Bot, Context, CommandError, NoPrivateMessage
 from cogs.controllers import GameController, CharacterController, MessageController
 from cogs.services.game_service import GameService
 from cogs.services.character_service import CharacterService
+from cogs.services.sentiment_service import SentimentService
 from util.embed_builder import send_guild_only_error
 
 load_dotenv()
@@ -19,9 +20,12 @@ def add_cogs(bot: Bot):
     character_service = CharacterService(bot)
     bot.add_cog(character_service)
 
+    sentiment_service = SentimentService(bot)
+    bot.add_cog(sentiment_service)
+
     bot.add_cog(GameController(bot, game_service))
     bot.add_cog(CharacterController(bot, game_service, character_service))
-    bot.add_cog(MessageController(bot))
+    bot.add_cog(MessageController(bot, sentiment_service))
 
 bot = Bot(command_prefix=COMMAND_PREFIX, intents=Intents.default())
 # TODO: Add async with bot:  to make call this line async and await (discord.py 2.0.0)
